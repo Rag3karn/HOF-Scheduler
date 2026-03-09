@@ -6,8 +6,7 @@ User-friendly interface for generating match announcements
 import streamlit as st # type: ignore
 import tempfile
 import os
-from scheduler import process_schedule_file
-import pandas as pd # type: ignore
+from scheduler import HOFScheduler
 
 
 # Page configuration
@@ -105,10 +104,16 @@ def initialize_session_state():
     """Initialize session state variables"""
     if 'announcement' not in st.session_state:
         st.session_state.announcement = None
+    if 'original_announcement' not in st.session_state:
+        st.session_state.original_announcement = None
     if 'errors' not in st.session_state:
         st.session_state.errors = None
     if 'file_processed' not in st.session_state:
         st.session_state.file_processed = False
+    if 'schedule_df' not in st.session_state:
+        st.session_state.schedule_df = None
+    if 'selected_venues' not in st.session_state:
+        st.session_state.selected_venues = []
 
 
 def main():
@@ -164,8 +169,9 @@ def main():
                     tmp_file.write(uploaded_file.getvalue())
                     tmp_file_path = tmp_file.name
                 
-                # Process the file
-                success, announcement, errors = process_schedule_file(tmp_file_path)
+                # Process and validate the file
+                scheduler = HOFScheduler()
+                success = scheduler.load_excel(tmp_file_path)
                 
                 # Clean up temporary file
                 os.unlink(tmp_file_path)
@@ -173,16 +179,29 @@ def main():
                 # Store results in session state
                 st.session_state.file_processed = True
                 if success:
+                    announcement = scheduler.generate_announcement()
                     st.session_state.announcement = announcement
+                    st.session_state.original_announcement = announcement
                     st.session_state.errors = None
+                    st.session_state.schedule_df = scheduler.df.copy()
+                    st.session_state.selected_venues = []
+                    st.session_state.venue_filter = []
                 else:
                     st.session_state.announcement = None
-                    st.session_state.errors = errors
+                    st.session_state.original_announcement = None
+                    st.session_state.errors = scheduler.get_errors()
+                    st.session_state.schedule_df = None
+                    st.session_state.selected_venues = []
+                    st.session_state.venue_filter = []
                 
             except Exception as e:
                 st.session_state.file_processed = True
                 st.session_state.announcement = None
+                st.session_state.original_announcement = None
                 st.session_state.errors = [f"Unexpected error: {str(e)}"]
+                st.session_state.schedule_df = None
+                st.session_state.selected_venues = []
+                st.session_state.venue_filter = []
     
     # Display results
     if st.session_state.file_processed:
@@ -216,17 +235,42 @@ def main():
             
             st.subheader("📢 Generated Announcement")
 
+            displayed_announcement = st.session_state.original_announcement
+
+            if st.session_state.schedule_df is not None:
+                venue_options = sorted(
+                    st.session_state.schedule_df['venueName'].dropna().astype(str).unique().tolist()
+                )
+
+                selected_venues = st.multiselect(
+                    "Filter by venueName",
+                    options=venue_options,
+                    default=st.session_state.selected_venues,
+                    help="Select one or more venueName values to view a filtered announcement.",
+                    key="venue_filter"
+                )
+                st.session_state.selected_venues = selected_venues
+
+                if selected_venues:
+                    filtered_announcement = HOFScheduler()
+                    filtered_announcement.df = st.session_state.schedule_df.copy()
+                    displayed_announcement = filtered_announcement.generate_announcement_for_venues(
+                        selected_venues
+                    )
+                else:
+                    displayed_announcement = st.session_state.original_announcement
+
             # Copy functionality using streamlit-javascript
             st.info("💡 **Tip:** Expand 'View Raw Text' for easy copying.")
             
             # Alternative: Use st.code for easy copying
             with st.expander("📝 View Raw Text (Click to Expand for Easy Copy)", expanded=True):
-                st.code(st.session_state.announcement, language=None)
+                st.code(displayed_announcement, language=None)
             
             # Download button as backup
             st.download_button(
                 label="📥 Download as Text File",
-                data=st.session_state.announcement,
+                data=displayed_announcement,
                 file_name="hof_announcement.txt",
                 mime="text/plain",
                 use_container_width=True

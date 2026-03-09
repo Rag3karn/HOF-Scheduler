@@ -170,11 +170,37 @@ class HOFScheduler:
         Returns:
             Formatted announcement string
         """
+        return self.generate_announcement_for_venues()
+
+    def generate_announcement_for_venues(self, venue_names: List[str] = None) -> str:
+        """
+        Generate formatted announcement message, optionally filtered by venue names
+
+        Args:
+            venue_names: List of venue names to include. If empty/None, includes all venues.
+
+        Returns:
+            Formatted announcement string
+        """
         if self.df is None or self.df.empty:
             raise ValueError("No data loaded. Please load an Excel file first.")
+
+        filtered_df = self.df
+        if venue_names:
+            filtered_df = self.df[self.df['venueName'].astype(str).isin(venue_names)]
+
+        if filtered_df.empty:
+            raise ValueError("No data available for the selected venue filter.")
+
+        return self._build_announcement_from_df(filtered_df)
+
+    def _build_announcement_from_df(self, data_frame: pd.DataFrame) -> str:
+        """Build announcement text from a dataframe"""
+        if data_frame.empty:
+            raise ValueError("No data available to generate announcement.")
         
         # Group by city for the header
-        city_name = self.df.iloc[0]['cityName']
+        city_name = data_frame.iloc[0]['cityName']
         
         # Start building the message
         lines = [
@@ -185,7 +211,7 @@ class HOFScheduler:
         ]
         
         # Process each row
-        for idx, row in self.df.iterrows():
+        for idx, row in data_frame.iterrows():
             venue_name = row['venueName']
             start_time = row['startTime']
             end_time = row['endTime']
